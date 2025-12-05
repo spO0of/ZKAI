@@ -1,3 +1,4 @@
+from base64 import b64encode
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives import hashes
@@ -16,7 +17,7 @@ def generate_dataset(DATASET_DATA, KEYS_NAME):
                 label=None
             )
         )
-        DATASET_DATA[args] = encrypted
+        DATASET_DATA[args] = b64encode(encrypted)
 
     DATASET_DATA['pub'] = public_key_data.decode()
 
