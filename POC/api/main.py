@@ -3,11 +3,14 @@ from pydantic import BaseModel
 
 from tinydb import TinyDB, Query
 
+import jwt
 import base64
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives import hashes
+import hashlib
 
+SECRET_KEY = "lxxxxesqzzzlzodds45454fzeds5azx2sdfdsfxa8s5f9e5"
 
 db = TinyDB('db.json')
 
@@ -34,7 +37,29 @@ app = FastAPI()
 
 @app.post("/register")
 async def input_request(user: User):
-    user_id = db.insert(user.dict())
+    public_key_str = user.pub
+    public_key_data = public_key_str.encode('utf-8')
+    public_key = serialization.load_pem_public_key(public_key_data)
+
+    encrypted_name = public_key.encrypt(
+        user.name.encode('utf-8'),
+        padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(),label=None)
+    )
+
+    encrypted_email = public_key.encrypt(
+        user.email.encode('utf-8'),
+        padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(),label=None)
+    )
+
+    user_data_to_store = {
+        'pub': user.pub,
+        'name': base64.b64encode(encrypted_name).decode('utf-8'),
+        'email': base64.b64encode(encrypted_email).decode('utf-8'),
+        'name_hash': hashlib.sha256(user.name.encode('utf-8')).hexdigest(),
+        'email_hash': hashlib.sha256(user.email.encode('utf-8')).hexdigest()
+    }
+
+    user_id = db.insert(user_data_to_store)
     return {"id": user_id}
 
 
@@ -61,43 +86,18 @@ async def input_request(id: Id):
     print(id_challenges_cache_memory)
     return {"challenge": encrypted_challenge_b64}
 
+
 @app.post("/login_resolve_crypto_challenge_and_send_jwt")
 async def input_request(id: Id, crypto_challenge_clear: CryptoChallengeClear, user_jwt : UserJwt):
     if id_challenges_cache_memory[id.id].decode() == crypto_challenge_clear.crypto_challenge_clear:
 
         user_data = db.get(doc_id=id.id)
-        public_key_str = user_data['pub']
-        public_key_data = public_key_str.encode('utf-8')
-        public_key = serialization.load_pem_public_key(public_key_data)
-        pub_nums = public_key.public_numbers()
-        e = pub_nums.e
-        n = pub_nums.n
-
-        decrypted_jwt = {}
 
         for key, value in user_jwt:
-            value = int.from_bytes(base64.b64decode(value), "big")
-            m = pow(value, e, n)
-            pt = m.to_bytes((m.bit_length()+7)//8, "big")
-            decrypted_jwt[key] = base64.b64encode(pt).decode()
+            if user_data[key+"_hash"] != hashlib.sha256(value.encode('utf-8')).hexdigest():
+                return "JWT tampered"
 
-        encrypted_jwt = {}
-
-        for key, value in decrypted_jwt.items():
-            encrypted_data = public_key.encrypt(
-                value.encode("utf-8"),
-                padding.OAEP(
-                    mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                    algorithm=hashes.SHA256(),
-                    label=None
-                )
-            )
-            encrypted_jwt[key] = base64.b64encode(encrypted_data)
-        print(encrypted_jwt)
-        """
-        là le problème c'est que ça donne pas le même résultat parce que le chiffrement est pas déterministe pour des raisons de sécurité.
-        je peu pas non plus faire un hahs des données reçu lors du register parce que les données sont jamais reçu en clair avant maintenant...
-        là je suis bloqué
-        """
+        token = jwt.encode(user_data, SECRET_KEY, algorithm="HS256")
+        return token
     else:
-        print("nok")
+        return "Challenge failed :("
