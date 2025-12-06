@@ -21,6 +21,14 @@ class User(BaseModel):
 class Id(BaseModel):
     id: int
 
+class CryptoChallengeClear(BaseModel):
+    crypto_challenge_clear: str
+
+class UserJwt(BaseModel):
+    name_encrypted: str
+    email_encrypted: str
+
+
 app = FastAPI()
 
 
@@ -38,8 +46,9 @@ async def input_request(id: Id):
     public_key_data = public_key_str.encode('utf-8')
     public_key = serialization.load_pem_public_key(public_key_data)
 
+    challenge_clear = b"toto"
     encrypted_challenge = public_key.encrypt(
-        b"toto",
+        challenge_clear,
         padding.OAEP(
             mgf=padding.MGF1(algorithm=hashes.SHA256()),
             algorithm=hashes.SHA256(),
@@ -48,6 +57,13 @@ async def input_request(id: Id):
     )
 
     encrypted_challenge_b64 = base64.b64encode(encrypted_challenge).decode('utf-8')
-    id_challenges_cache_memory[id.id] = encrypted_challenge_b64
+    id_challenges_cache_memory[id.id] = challenge_clear
     print(id_challenges_cache_memory)
     return {"challenge": encrypted_challenge_b64}
+
+@app.post("/login_resolve_crypto_challenge_and_send_jwt")
+async def input_request(id: Id, crypto_challenge_clear: CryptoChallengeClear, user_jwt : UserJwt):
+    if id_challenges_cache_memory[id.id].decode() == crypto_challenge_clear.crypto_challenge_clear:
+        print("ok")
+    else:
+        print("nok")
